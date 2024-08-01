@@ -1,0 +1,26 @@
+<!-- serializedProductList.html -->
+<template>
+    <lightning-card title="Order Items">
+        <div class="slds-m-bottom_medium">
+            <lightning-input label="Order ID" value={orderId} onchange={handleOrderIdChange}></lightning-input>
+            <lightning-button label="Fetch Order Items" onclick={handleFetchOrderItems}></lightning-button>
+        </div>
+        <template if:true={orderItemsWithProducts}>
+            <template for:each={orderItemsWithProducts} for:item="wrapper">
+                <div key={wrapper.orderItem.Id} class="slds-box slds-m-bottom_medium">
+                    <h2>{wrapper.orderItem.Product2.Name} (Requested Quantity: {wrapper.orderItem.Quantity})</h2>
+                    <template for:each={wrapper.product} for:item="serializedProduct">
+                        <lightning-input key={serializedProduct.Id}
+                                         type="checkbox"
+                                         data-product-id={serializedProduct.Id}
+                                         data-order-id={wrapper.orderItem.Id}
+                                         label={serializedProduct.Name}
+                                         onchange={handleCheckboxChange}>
+                        </lightning-input>
+                    </template>
+                </div>
+            </template>
+            <lightning-button label="Submit Selected Products" onclick={handleSubmit}></lightning-button>
+        </template>
+    </lightning-card>
+</template>
