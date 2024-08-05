@@ -1,0 +1,101 @@
+public with sharing class SerializedProductController {
+    @AuraEnabled(cacheable=true)
+    public static List<OrderItemWrapper> getOrderItemsWithProductsByOrderId(String orderId) {
+        List<OrderItemWrapper> orderItemWrappers = new List<OrderItemWrapper>();
+        List<OrderItem> orderItems = [SELECT Id, Product2Id, Product2.Name, Product2.IsSerialized, Quantity FROM OrderItem WHERE OrderId = :orderId AND Product2.IsSerialized = true];
+
+        Set<Id> productIds = new Set<Id>();
+
+        Order ord = [SELECT Id FROM Order WHERE Id = :orderId LIMIT 1];
+        for (OrderItem item : orderItems) {
+            productIds.add(item.Product2Id);
+        }
+
+        Schema.Location locationMap = [SELECT Id, Name FROM Location where Location.OwnerId =:  ord.CreatedById ].get(0);
+
+        List<ProductItem> piList = [SELECT Id, Product2Id, (SELECT Id, Name, Product2Id FROM SerializedProducts) FROM ProductItem WHERE IsProduct2Serialized = true AND Product2Id IN :productIds AND LocationId = :locationMap.Id];
+        Map<Id, List<SerializedProduct>> serializedProductMap1 = new Map<Id, List<SerializedProduct>>();
+
+        for (ProductItem pi : piList) {
+            List<SerializedProduct> serializedProductList = new List<SerializedProduct>();
+            for (SerializedProduct sp : pi.SerializedProducts) {
+                serializedProductList.add(sp);
+            }
+            serializedProductMap1.put(pi.Product2Id, serializedProductList);
+        }
+
+        for (OrderItem item : orderItems) {
+            orderItemWrappers.add(new OrderItemWrapper(item, serializedProductMap1.get(item.Product2Id)));
+        }
+
+        return orderItemWrappers;
+    }
+
+    @AuraEnabled
+    public static void submitSelectedProducts(List<SelectedProductData> selectedProductData) {
+
+        List<Id> orderItemIds = new List<Id>();
+
+        for (SelectedProductData data : selectedProductData) {
+
+            orderItemIds.add(data.orderItemId);
+
+        }
+
+        Map<Id, OrderItem> orderItemsMap = new Map<Id, OrderItem>([SELECT Id, Quantity,Product_Consumed__c FROM OrderItem WHERE Id IN :orderItemIds]);
+
+        Map<Id, Integer> pcAndQuantityMap = new Map<Id, Integer>();
+
+        List<ProductConsumedState> pcsList = new List<ProductConsumedState>();
+
+        for (SelectedProductData data : selectedProductData) {
+
+            if (orderItemsMap.containsKey(data.orderItemId)) {
+                OrderItem oi = orderItemsMap.get(data.orderItemId);
+                Id productConsumedId = oi.Product_Consumed__c;
+                pcAndQuantityMap.put(productConsumedId, Integer.valueOf(orderItemsMap.get(data.orderItemId).Quantity));
+
+                for (Integer i=0; i<orderItemsMap.get(data.orderItemId).Quantity; i++){
+                    ProductConsumedState pcs = new ProductConsumedState();
+                    pcs.ProductConsumedId =productConsumedId;
+                    pcs.SerializedProductId = data.selectedProductIds.get(i);
+                    pcs.ConsumedState = 'Consumed';
+
+
+                    pcsList.add(pcs);
+                }
+            } else {
+                System.debug('No OrderItem found for the given Id: ' + data.orderItemId);
+            }
+        }
+        insert(pcsList);
+
+
+        List<ProductConsumed> pcList = new List<ProductConsumed>();
+
+        for(Id ids : pcAndQuantityMap.keySet()){
+            ProductConsumed pc = new ProductConsumed();
+            pc.id = ids;
+            pc.QuantityConsumed =pcAndQuantityMap.get(ids);
+            pc.IsConsumed =true;
+            pcList.add(pc);
+        }
+        update(pcList);
+    }
+    
+    public class OrderItemWrapper {
+        @AuraEnabled public OrderItem orderItem { get; set; }      
+        @AuraEnabled public List<SerializedProduct> product { get; set; }
+
+      
+        public OrderItemWrapper(OrderItem orderItem, List<SerializedProduct> product) {
+            this.orderItem = orderItem;
+            this.product = product;
+        }
+    }
+
+    public class SelectedProductData {
+        @AuraEnabled public String orderItemId { get; set; }
+        @AuraEnabled public List<Id> selectedProductIds { get; set; }
+    }
+}
